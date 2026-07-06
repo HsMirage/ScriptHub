@@ -1421,7 +1421,7 @@ AUTOGEN_EOF
       if [ ! -f "$dir/.env" ]; then
         print_info "生成默认 .env ..."
         local initial_password jwt_secret api_key_secret machine_id_salt
-        initial_password=$(_prompt_secret_value "9Router 首次登录密码" "$(_random_secret)")
+        initial_password=$(_random_secret)
         jwt_secret=$(_random_secret)
         api_key_secret=$(_random_secret)
         machine_id_salt=$(_random_secret)
