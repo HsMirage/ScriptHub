@@ -170,10 +170,8 @@ detect_public_ip() {
 
 print_access_info() {
   local port="$1" lan_ip="$2" public_ip="$3" service_name="${4:-}" network_name="${5:-}"
-  echo "  本机访问: http://127.0.0.1:${port}"
   [ -n "$lan_ip" ] && echo "  局域网访问: http://${lan_ip}:${port}"
   [ -n "$public_ip" ] && echo "  公网访问: http://${public_ip}:${port}" || echo "  公网访问: 未检测到公网 IP，请用服务器公网 IP + 端口访问"
-  echo "  Docker 容器访问宿主机: http://host.docker.internal:${port}（Linux 上可能需要为容器添加 host-gateway）"
   if [ -n "$service_name" ] && [ -n "$network_name" ]; then
     echo "  同 Docker 网络访问: http://${service_name}:${port}（调用方容器需连接 ${network_name}）"
   fi
