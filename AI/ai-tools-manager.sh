@@ -1494,6 +1494,9 @@ AUTOGEN_EOF
 LITELLM_MASTER_KEY=${master_key}
 LITELLM_SALT_KEY=${salt_key}
 DATABASE_URL=postgresql://${pg_user_url}:${pg_pass_url}@${PG_CONTAINER}:5432/litellm
+INTERNAL_URL=http://127.0.0.1:4000
+PUBLIC_BASE_URL=http://127.0.0.1:4000
+APP_URL=http://127.0.0.1:4000
 STORE_MODEL_IN_DB=True
 UI_USERNAME=admin
 UI_PASSWORD=${master_key}
@@ -1559,7 +1562,8 @@ print_install_info() {
       fi
       ;;
     litellm)
-      echo "  访问地址: http://$ip:4000"
+      echo "  内网地址: http://127.0.0.1:4000"
+      echo "  局域网地址: http://$ip:4000"
       echo "  配置文件: $dir/config.yaml"
       echo "  环境文件: $dir/.env"
       if [ -f "$dir/.env" ]; then
