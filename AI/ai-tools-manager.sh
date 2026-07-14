@@ -72,6 +72,7 @@ PG_NETWORK="${PG_NETWORK:-postgres_default}"
 PG_CONF_FILE="/etc/server-manager-pg.conf"
 PG_USER="${PG_USER:-}"
 PG_PASSWORD="${PG_PASSWORD:-}"
+AXONHUB_RETENTION_DAYS="${AXONHUB_RETENTION_DAYS:-30}"
 
 # 对密码中的特殊字符做 URL 编码（用于 PostgreSQL URI）
 url_encode() {
@@ -1117,6 +1118,84 @@ ensure_all_pg_databases() {
   done < <(extract_pg_uri_dsns "$dir")
 }
 
+# 启用 AxonHub 官方 GC：请求日志和用量日志按指定天数自动清理。
+# 仅更新 cleanup_options，保留用户已有的正文、分块和预览设置。
+configure_axonhub_retention() {
+  local dir="$1" retention_days="$AXONHUB_RETENTION_DAYS"
+
+  if ! [[ "$retention_days" =~ ^[1-9][0-9]*$ ]]; then
+    print_warning "AxonHub 保留天数无效: $retention_days（需为正整数），跳过自动清理配置。"
+    return 1
+  fi
+
+  local db_line pg_host pg_port pg_user pg_pass pg_db pg_container
+  db_line=$({
+    extract_pg_dsns "$dir" || true
+    extract_pg_uri_dsns "$dir" || true
+  } | awk -F'|' 'NF >= 5 { print; exit }') || true
+
+  if [ -z "$db_line" ]; then
+    print_warning "无法读取 AxonHub PostgreSQL 连接信息，跳过自动清理配置。"
+    return 1
+  fi
+
+  IFS='|' read -r pg_host pg_port pg_user pg_pass pg_db <<< "$db_line"
+  pg_container=$(find_pg_container "$pg_host" || true)
+  if [ -z "$pg_container" ]; then
+    print_warning "找不到 AxonHub 使用的 PostgreSQL 容器 (host=$pg_host)，跳过自动清理配置。"
+    return 1
+  fi
+
+  print_info "配置 AxonHub 自动清理（保留 ${retention_days} 天）..."
+  if docker exec -i -e PGPASSWORD="$pg_pass" "$pg_container" \
+      psql -U "$pg_user" -d "$pg_db" -v ON_ERROR_STOP=1 -Atq >/dev/null 2>&1 <<SQL
+INSERT INTO systems (key, value)
+VALUES (
+  'storage_policy',
+  jsonb_build_object(
+    'store_chunks', false,
+    'live_preview', false,
+    'store_request_body', true,
+    'store_response_body', true,
+    'cleanup_options', jsonb_build_array(
+      jsonb_build_object('resource_type', 'requests', 'enabled', true, 'cleanup_days', ${retention_days}),
+      jsonb_build_object('resource_type', 'usage_logs', 'enabled', true, 'cleanup_days', ${retention_days})
+    )
+  )::text
+)
+ON CONFLICT (key) DO UPDATE
+SET value = (
+      COALESCE(NULLIF(systems.value, '')::jsonb, '{}'::jsonb)
+      || jsonb_build_object(
+        'cleanup_options',
+        COALESCE(
+          (
+            SELECT jsonb_agg(option)
+            FROM jsonb_array_elements(
+              COALESCE((NULLIF(systems.value, '')::jsonb)->'cleanup_options', '[]'::jsonb)
+            ) AS option
+            WHERE option->>'resource_type' NOT IN ('requests', 'usage_logs')
+          ),
+          '[]'::jsonb
+        )
+        || jsonb_build_array(
+          jsonb_build_object('resource_type', 'requests', 'enabled', true, 'cleanup_days', ${retention_days}),
+          jsonb_build_object('resource_type', 'usage_logs', 'enabled', true, 'cleanup_days', ${retention_days})
+        )
+      )
+    )::text,
+    updated_at = CURRENT_TIMESTAMP,
+    deleted_at = 0;
+SQL
+  then
+    print_success "AxonHub 自动清理已启用：请求日志和用量日志保留 ${retention_days} 天。"
+    return 0
+  fi
+
+  print_warning "AxonHub 自动清理配置失败；服务保持运行，请稍后重试更新或重启操作。"
+  return 1
+}
+
 # 确保 PostgreSQL 在需要时自动安装
 ensure_pg_installed() {
   if pg_compose_installed && pg_available; then
@@ -1420,6 +1499,7 @@ log:
 gc:
   cron: "0 2 * * *"
   vacuum_enabled: true
+  vacuum_full: false
 AUTOGEN_EOF
       fi
       ;;
@@ -1840,6 +1920,7 @@ do_install() {
 
   print_info "启动 $display..."
   if start_and_verify "$dir" "$display"; then
+    [ "$name" = "axonhub" ] && configure_axonhub_retention "$dir" || true
     print_success "$display 安装完成。"
     print_install_info "$name" "$dir" "$display"
   else
@@ -1905,6 +1986,7 @@ do_update() {
 
   print_info "重建容器..."
   if start_and_verify "$dir" "$display"; then
+    [ "$name" = "axonhub" ] && configure_axonhub_retention "$dir" || true
     print_success "$display 已更新。"
     rm -rf "$bk_dir" 2>/dev/null || true
 
@@ -1999,10 +2081,12 @@ do_start() {
   fi
 
   if is_running "$dir"; then
+    [ "$name" = "axonhub" ] && configure_axonhub_retention "$dir" || true
     print_warning "$display 已在运行。"; return
   fi
 
   if start_and_verify "$dir" "$display"; then
+    [ "$name" = "axonhub" ] && configure_axonhub_retention "$dir" || true
     print_success "$display 已启动。"
   else
     print_error "$display 启动失败，请检查上面的日志排查问题。"
@@ -2022,6 +2106,7 @@ do_restart() {
   sleep 1
 
   if start_and_verify "$dir" "$display"; then
+    [ "$name" = "axonhub" ] && configure_axonhub_retention "$dir" || true
     print_success "$display 已重启。"
   else
     print_error "$display 重启失败，请检查上面的日志排查问题。"

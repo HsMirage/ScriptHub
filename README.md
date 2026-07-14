@@ -19,6 +19,7 @@ bash <(curl -s -L https://raw.githubusercontent.com/HsMirage/ScriptHub/main/AI/a
 - 建议使用 `root` 权限运行。
 - 生产环境操作更新、重启、卸载前，请先确认已有数据库备份。
 - AxonHub 请求明细可能非常大，不建议在磁盘空间不足时做完整数据库备份。
+- AxonHub 安装、更新、启动或重启成功后，会自动启用请求日志和用量日志清理，默认保留 30 天、每天北京时间 10:00 执行；可通过 `AXONHUB_RETENTION_DAYS` 设置其他正整数天数。
 - LiteLLM 默认接入共享 PostgreSQL，不会额外创建独立 PostgreSQL 容器。
 - 脚本会优先使用 Docker Compose 管理服务，需要服务器已安装 Docker 和 Docker Compose。
 
